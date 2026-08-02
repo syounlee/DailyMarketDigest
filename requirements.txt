@@ -1,0 +1,8 @@
+yfinance
+requests
+pyyaml
+python-dotenv
+langchain
+langchain-anthropic
+langchain-google-genai
+langchain-ollama
