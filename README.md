@@ -1,9 +1,9 @@
-# Daily Financial Data & News Agent
+# DailyMarketDigest
 
-A daily-run agent that pulls US + Korean market data and news, synthesizes it into a
+A scheduled pipeline that pulls US + Korean market data and news, synthesizes it into a
 digest with an LLM, and emails it every morning.
 
-- **Stack**: plain Python + cron/launchd (no agent framework running the pipeline itself)
+- **Stack**: plain Python + cron/launchd (a deterministic pipeline, not an autonomous agent — see [Notes](#notes--things-to-revisit-later) for why)
 - **Markets covered**: US (S&P 500, Nasdaq, Dow + your watchlist) and Korea (KOSPI, KOSDAQ + your watchlist)
 - **News**: English via Finnhub (real-time, ticker + market-category news), Korean via Naver Search API — folded into one English-language digest
 - **Synthesis**: LangChain, with a swappable LLM backend (Claude / Gemini / local Ollama). When using
@@ -53,7 +53,7 @@ run — only a failure in the final email send aborts the whole pipeline.
 ## Project Structure
 
 ```
-financial_advisor/
+DailyMarketDigest/
 ├── .env                      # secrets (gitignored, not committed)
 ├── .env.example               # template — copy to .env and fill in
 ├── .gitignore
@@ -70,7 +70,7 @@ financial_advisor/
 │   └── email_sender.py       # send_email() via Gmail SMTP
 ├── data/
 │   ├── snapshots/            # one JSON file per day (gitignored)
-│   └── agent.log             # run log (gitignored)
+│   └── digest.log            # run log (gitignored)
 ├── main.py                   # orchestrates the full daily pipeline
 └── run.sh                    # cron/launchd entry point
 ```
@@ -130,11 +130,11 @@ that section thin, until you add the missing key.
 ## Scheduling (not yet set up)
 
 `run.sh` is the entry point cron/launchd should call — it `cd`s into the project,
-activates the venv, runs `main.py`, and appends output to `data/agent.log`.
+activates the venv, runs `main.py`, and appends output to `data/digest.log`.
 
 **cron** (`crontab -e`), e.g. to run at 7:00 AM daily:
 ```
-0 7 * * * /Users/seunglee/works/financial_advisor/run.sh
+0 7 * * * /Users/seunglee/works/DailyMarketDigest/run.sh
 ```
 
 **launchd** is generally more reliable on macOS (cron jobs can silently fail to fire
@@ -176,6 +176,14 @@ OLLAMA_MODEL_EN=llama3.1:8b
 
 ## Notes / things to revisit later
 
+- **Why "Digest" and not "Agent"**: this is a fixed, deterministic pipeline (same steps,
+  same order, every run) with an LLM invoked as a subroutine for writing — it doesn't
+  perceive changing conditions, choose its own tools, or act autonomously toward a goal,
+  which is what "agent" implies. That was a deliberate choice (see the [Process Flow](#process-flow)
+  above): a scheduled daily report doesn't benefit from an LLM deciding what to fetch: predictability
+  matters more here. A genuinely agentic version of this project would be a separate,
+  interactive system built on the same data modules (`market_data.py`, `news_data.py`,
+  `news_data_kr.py`) with real tool-calling and reasoning — not a change to this pipeline.
 - Snapshots (`data/snapshots/*.json`) currently only feed a yesterday-vs-today diff into
   the prompt; there's no multi-day trend analysis or queryable database — decided against
   for now, revisit if you want richer historical context later.
@@ -187,5 +195,5 @@ OLLAMA_MODEL_EN=llama3.1:8b
   sticking strictly to the fed-in headline — worth spot-checking digests occasionally,
   especially with smaller local models.
 - `main.py` aborts (rather than falling back) if the email step itself fails, since a
-  digest that isn't delivered isn't useful — check `data/agent.log` if a scheduled run
+  digest that isn't delivered isn't useful — check `data/digest.log` if a scheduled run
   produces no email.

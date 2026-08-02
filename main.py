@@ -13,7 +13,7 @@ from src.storage import load_yesterday, save_today
 from src.synthesize import build_digest
 
 BASE_DIR = Path(__file__).resolve().parent
-LOG_FILE = BASE_DIR / "data" / "agent.log"
+LOG_FILE = BASE_DIR / "data" / "digest.log"
 
 logging.basicConfig(
     level=logging.INFO,

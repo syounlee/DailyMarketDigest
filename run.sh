@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 cd "$(dirname "$0")"
-source venv/bin/activate
-python main.py >> data/agent.log 2>&1
+source .venv/bin/activate
+python main.py >> data/digest.log 2>&1
