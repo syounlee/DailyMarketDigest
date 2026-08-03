@@ -67,12 +67,12 @@ def main() -> None:
 
     previous_snapshot = load_yesterday()
 
-    digest = build_digest(
+    html_digest, text_digest = build_digest(
         us_indices, kr_indices, watchlist_quotes, news_en, news_kr, previous_snapshot
     )
 
     subject = f"Daily Market Digest - {date.today().isoformat()}"
-    send_email(subject=subject, body_text=digest)
+    send_email(subject=subject, html_body=html_digest, text_body=text_digest)
     log.info("Digest email sent.")
 
     save_today(
