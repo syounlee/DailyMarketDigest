@@ -13,12 +13,12 @@ from src.storage import load_yesterday, save_today
 from src.synthesize import build_digest
 
 BASE_DIR = Path(__file__).resolve().parent
-LOG_FILE = BASE_DIR / "data" / "digest.log"
 
+# Logs to stderr only - run.sh redirects stdout/stderr to data/digest.log for
+# scheduled runs, so a separate FileHandler here would double-write every line.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    handlers=[logging.FileHandler(LOG_FILE), logging.StreamHandler()],
 )
 log = logging.getLogger("daily_digest")
 

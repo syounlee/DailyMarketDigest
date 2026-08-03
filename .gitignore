@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 data/snapshots/
 data/digest.log
+data/launchd.log
+data/ollama.log
