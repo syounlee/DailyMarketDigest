@@ -75,6 +75,20 @@ def _format_quotes(quotes: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _format_index_quotes(quotes: list[dict]) -> str:
+    """Like _format_quotes, but for indices - these are point values, not a currency amount."""
+    if not quotes:
+        return "(none)"
+    lines = []
+    for q in quotes:
+        pct = q.get("pct_change")
+        pct_str = f"{pct:+.2f}%" if pct is not None else "n/a"
+        price = q.get("price")
+        price_str = f"{price:,.2f} pts" if price is not None else "n/a"
+        lines.append(f"- {q['name']} ({q['ticker']}): {price_str} ({pct_str})")
+    return "\n".join(lines)
+
+
 def _format_news(articles: list[dict]) -> str:
     if not articles:
         return "(none)"
@@ -117,6 +131,25 @@ def _parse_commentary(raw: str) -> tuple[str, str]:
     return us, kr
 
 
+def _format_previous_snapshot(snapshot: dict | None) -> str:
+    """Format yesterday's snapshot into a short readable price recap - not a raw
+    dict dump. Yesterday's news is intentionally omitted here (it's stale and
+    was previously confusing the model, which saw raw JSON keys like "news_en"
+    and started describing the data structure instead of writing commentary).
+    """
+    if not snapshot:
+        return "(none - first run)"
+
+    parts = []
+    if snapshot.get("us_indices"):
+        parts.append("US indices yesterday:\n" + _format_index_quotes(snapshot["us_indices"]))
+    if snapshot.get("kr_indices"):
+        parts.append("KR indices yesterday:\n" + _format_index_quotes(snapshot["kr_indices"]))
+    if snapshot.get("watchlist_quotes"):
+        parts.append("Watchlist yesterday:\n" + _format_quotes(snapshot["watchlist_quotes"]))
+    return "\n\n".join(parts) if parts else "(none - first run)"
+
+
 def _generate_commentary(
     market_data_us: list[dict],
     market_data_kr: list[dict],
@@ -135,12 +168,12 @@ def _generate_commentary(
     )
     raw = chain.invoke(
         {
-            "us_indices": _format_quotes(market_data_us),
-            "kr_indices": _format_quotes(market_data_kr),
+            "us_indices": _format_index_quotes(market_data_us),
+            "kr_indices": _format_index_quotes(market_data_kr),
             "watchlist_quotes": _format_quotes(watchlist_quotes),
             "news_en": _format_news(news_en),
             "news_kr_translated": news_kr_translated_text,
-            "previous_snapshot": previous_snapshot or "(none - first run)",
+            "previous_snapshot": _format_previous_snapshot(previous_snapshot),
         }
     )
     return _parse_commentary(raw)
@@ -152,6 +185,11 @@ def _fmt_price(price, currency) -> str:
     if currency == "KRW":
         return f"₩{price:,.0f}"
     return f"${price:,.2f}"
+
+
+def _fmt_index_value(price) -> str:
+    """Indices are point values, not a currency amount - no $ / ₩ prefix."""
+    return f"{price:,.2f}" if price is not None else "n/a"
 
 
 def _chip_html(pct) -> str:
@@ -166,7 +204,7 @@ def _index_cards_html(quotes: list[dict]) -> str:
     cards = []
     for q in quotes:
         name = html.escape(str(q.get("name", q.get("ticker", ""))))
-        price = html.escape(_fmt_price(q.get("price"), q.get("currency")))
+        price = html.escape(_fmt_index_value(q.get("price")))
         cards.append(
             f'<div class="card"><div class="name">{name}</div>'
             f'<div class="price">{price}</div>{_chip_html(q.get("pct_change"))}</div>'
@@ -300,8 +338,8 @@ def _render_text(
     us_commentary, kr_commentary,
 ) -> str:
     lines = [f"DailyMarketDigest — {date_str}", ""]
-    lines += ["US MARKET", _format_quotes(market_data_us), "", us_commentary, ""]
-    lines += ["KOREA MARKET", _format_quotes(market_data_kr), "", kr_commentary, ""]
+    lines += ["US MARKET", _format_index_quotes(market_data_us), "", us_commentary, ""]
+    lines += ["KOREA MARKET", _format_index_quotes(market_data_kr), "", kr_commentary, ""]
     lines += ["WATCHLIST", _format_quotes(watchlist_quotes), ""]
     lines += ["HEADLINES", _format_news(news_en)]
     if kr_translated:

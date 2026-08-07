@@ -106,6 +106,9 @@ DailyMarketDigest/
 `market_data.py` needs no key — it uses `yfinance` (Yahoo Finance), which is free and
 unauthenticated for both US and Korean tickers.
 
+`DIGEST_RECIPIENT` accepts a comma-separated list to send the digest to multiple people,
+e.g. `DIGEST_RECIPIENT=you@example.com,other@example.com`.
+
 ## Running manually
 
 ```bash
