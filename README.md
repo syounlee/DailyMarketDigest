@@ -10,6 +10,8 @@ digest with an LLM, and emails it every morning.
   Ollama, synthesis runs as two stages on two different local models: a Korean-specialized model
   translates the Korean news, then a strong English model composes the full digest.
 - **Delivery**: email via Gmail SMTP
+- **Schedule-aware**: sends a different email format depending on the day — see
+  [Day-of-week behavior](#day-of-week-behavior)
 
 ## Process Flow
 
@@ -48,7 +50,27 @@ flowchart TD
 handoff, see [Dual-model synthesis](#dual-model-synthesis-ollama-only)). With `claude` or
 `gemini`, both stages collapse into a single call on the one configured model. A failure in
 any data-fetch step is logged and falls back to an empty result rather than stopping the
-run — only a failure in the final email send aborts the whole pipeline.
+run — only a failure in the final email send aborts the whole pipeline. This diagram shows
+the Tue–Sat path specifically — see the next section for Sunday/Monday.
+
+## Day-of-week behavior
+
+Both markets are closed Sat/Sun, and the US session for "today" hasn't opened yet by 7 AM
+KST Monday (it opens ~11:30 PM KST) — so a plain daily digest on those two days is either a
+duplicate of Saturday's (Sunday: nothing changed) or misleadingly stale (Monday: shows
+Friday's close as if current). `main.py` picks the format by weekday instead:
+
+| Day | Email | Built by |
+|---|---|---|
+| Tue–Sat | Regular daily digest | `synthesize.build_digest()` |
+| Sunday | **Weekly Recap** — this Friday vs. last Friday's close, aggregated headlines from the week (`data/snapshots/*.json`) | `weekly.build_weekly_summary()` |
+| Monday | **Week Ahead** — last Friday's closing levels (clearly labeled as such), confirmed earnings this week for US watchlist tickers (`src/earnings_calendar.py`, Finnhub), today's news | `weekly.build_week_ahead()` |
+
+Both variants reuse the exact same visual style (`src/formatting.py`) as the daily digest,
+just with different sections/headers, and both still save a snapshot at the end so Tuesday's
+day-over-day framing keeps working uninterrupted. Same anti-hallucination approach as the
+daily digest: all prices/dates are rendered directly from fetched data, and the LLM is only
+ever asked to write commentary grounded in what it was actually given.
 
 ## Project Structure
 
@@ -64,9 +86,12 @@ DailyMarketDigest/
 │   ├── market_data.py        # fetch_quotes() via yfinance (US + KR tickers)
 │   ├── news_data.py          # fetch_all() English headlines via Finnhub (company + general news)
 │   ├── news_data_kr.py       # fetch_all_kr() Korean headlines via Naver Search API
-│   ├── storage.py            # daily JSON snapshots, load_yesterday()/save_today()
+│   ├── earnings_calendar.py  # fetch_upcoming_earnings() via Finnhub (US tickers only)
+│   ├── storage.py            # daily JSON snapshots, load_yesterday()/load_snapshot()/save_today()
 │   ├── llm_provider.py       # get_chat_model(role) factory: claude | gemini | ollama (role picks the Ollama model)
-│   ├── synthesize.py         # 2-stage LCEL: translate_kr_news() -> build_digest() -> digest text
+│   ├── formatting.py         # shared pure-Python rendering helpers (used by synthesize.py + weekly.py)
+│   ├── synthesize.py         # 2-stage LCEL: translate_kr_news() -> build_digest() -> daily digest
+│   ├── weekly.py             # build_weekly_summary() (Sunday) + build_week_ahead() (Monday)
 │   └── email_sender.py       # send_email() via Gmail SMTP
 ├── data/
 │   ├── snapshots/            # one JSON file per day (gitignored)
@@ -119,11 +144,13 @@ python main.py
 Each module can also be run standalone to sanity-check just that piece, e.g.:
 
 ```bash
-python -m src.market_data     # print live quotes for your configured tickers
-python -m src.news_data       # print English headlines (needs FINNHUB_API_KEY)
-python -m src.news_data_kr    # print Korean headlines (needs Naver keys)
-python -m src.llm_provider    # sanity-check the configured LLM backend
-python -m src.synthesize      # build a sample digest with real prices + fake news
+python -m src.market_data       # print live quotes for your configured tickers
+python -m src.news_data         # print English headlines (needs FINNHUB_API_KEY)
+python -m src.news_data_kr      # print Korean headlines (needs Naver keys)
+python -m src.earnings_calendar # print this week's confirmed earnings for your US watchlist
+python -m src.llm_provider      # sanity-check the configured LLM backend
+python -m src.synthesize        # build a sample daily digest with real prices + fake news
+python -m src.weekly            # build sample Weekly Recap + Week Ahead emails
 ```
 
 A single failed step (e.g. a missing news API key) logs an error and falls back to an
