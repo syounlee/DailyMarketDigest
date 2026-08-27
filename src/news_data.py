@@ -80,9 +80,11 @@ if __name__ == "__main__":
     load_dotenv()
     import yaml
 
+    from src.config_utils import tickers
+
     with open("config/watchlist.yaml") as f:
         config = yaml.safe_load(f)
 
-    items = fetch_all(config["watchlist_us"], config["news_categories_en"])
+    items = fetch_all(tickers(config["watchlist_us"]), config["news_categories_en"])
     for item in items:
         print(item)

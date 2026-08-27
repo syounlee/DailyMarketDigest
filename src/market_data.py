@@ -41,14 +41,16 @@ def _display_name(t: yf.Ticker, ticker: str) -> str:
 if __name__ == "__main__":
     import yaml
 
+    from src.config_utils import tickers
+
     with open("config/watchlist.yaml") as f:
         config = yaml.safe_load(f)
 
     all_tickers = (
         config["indices_us"]
         + config["indices_kr"]
-        + config["watchlist_us"]
-        + config["watchlist_kr"]
+        + tickers(config["watchlist_us"])
+        + tickers(config["watchlist_kr"])
     )
     for q in fetch_quotes(all_tickers):
         print(q)

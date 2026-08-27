@@ -54,11 +54,13 @@ if __name__ == "__main__":
     load_dotenv()
     import yaml
 
+    from src.config_utils import tickers
+
     with open("config/watchlist.yaml") as f:
         config = yaml.safe_load(f)
 
     today = date.today()
-    entries = fetch_upcoming_earnings(config["watchlist_us"], today, today + timedelta(days=7))
+    entries = fetch_upcoming_earnings(tickers(config["watchlist_us"]), today, today + timedelta(days=7))
     if not entries:
         print("(no confirmed earnings in the next 7 days for the US watchlist)")
     for e in entries:

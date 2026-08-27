@@ -1,8 +1,23 @@
 indices_us: ["^GSPC", "^IXIC", "^DJI"]     # S&P 500, Nasdaq, Dow
 indices_kr: ["^KS11", "^KQ11"]             # KOSPI Composite, KOSDAQ Composite
 
-watchlist_us: ["AAPL", "MSFT", "SPY"]      # placeholder - edit to your own tickers
-watchlist_kr: ["005930.KS", "000660.KS"]   # placeholder: Samsung Electronics, SK Hynix
+# Each holding needs at least `ticker`. Fill in buy_date/buy_price/shares/cost
+# as you go - these aren't used by the emails yet, just stored for a future
+# gain/loss feature. `cost` is entered separately (not computed as
+# buy_price * shares) so it can reflect fees/commissions, e.g.:
+#   - ticker: AAPL
+#     buy_date: 2026-01-15
+#     buy_price: 150.00
+#     shares: 10
+#     cost: 1512.50
+watchlist_us:
+  - ticker: AAPL      # placeholder - edit to your own holdings
+  - ticker: MSFT
+  - ticker: SPY
+
+watchlist_kr:
+  - ticker: 005930.KS   # placeholder: Samsung Electronics
+  - ticker: 000660.KS   # placeholder: SK Hynix
 
 news_categories_en: ["general"]            # Finnhub categories: general, forex, crypto, merger
 news_keywords_kr: ["코스피", "코스닥"]

@@ -5,6 +5,7 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
+from src.config_utils import tickers
 from src.earnings_calendar import fetch_upcoming_earnings
 from src.email_sender import send_email
 from src.market_data import fetch_quotes
@@ -62,19 +63,22 @@ def _aggregate_week_news(days: list[date]) -> tuple[list[dict], list[dict]]:
 
 def _run_daily(config: dict) -> None:
     """Tue-Sat: the regular daily digest."""
+    watchlist_us = tickers(config["watchlist_us"])
+    watchlist_kr = tickers(config["watchlist_kr"])
+
     us_indices = safe_fetch("market_data.us_indices", fetch_quotes, config["indices_us"], default=[])
     kr_indices = safe_fetch("market_data.kr_indices", fetch_quotes, config["indices_kr"], default=[])
     watchlist_quotes = safe_fetch(
         "market_data.watchlist",
         fetch_quotes,
-        config["watchlist_us"] + config["watchlist_kr"],
+        watchlist_us + watchlist_kr,
         default=[],
     )
 
     news_en = safe_fetch(
         "news_data.en",
         fetch_news_en,
-        config["watchlist_us"],
+        watchlist_us,
         config["news_categories_en"],
         default=[],
     )
@@ -125,7 +129,7 @@ def _run_weekly_summary(config: dict) -> None:
         this_week_watchlist = safe_fetch(
             "weekly.watchlist",
             fetch_quotes,
-            config["watchlist_us"] + config["watchlist_kr"],
+            tickers(config["watchlist_us"]) + tickers(config["watchlist_kr"]),
             default=[],
         )
 
@@ -176,20 +180,22 @@ def _run_week_ahead(config: dict) -> None:
     7 AM KST).
     """
     today = date.today()
+    watchlist_us = tickers(config["watchlist_us"])
+    watchlist_kr = tickers(config["watchlist_kr"])
 
     us_indices = safe_fetch("week_ahead.us_indices", fetch_quotes, config["indices_us"], default=[])
     kr_indices = safe_fetch("week_ahead.kr_indices", fetch_quotes, config["indices_kr"], default=[])
     watchlist_quotes = safe_fetch(
         "week_ahead.watchlist",
         fetch_quotes,
-        config["watchlist_us"] + config["watchlist_kr"],
+        watchlist_us + watchlist_kr,
         default=[],
     )
 
     news_en = safe_fetch(
         "week_ahead.news_en",
         fetch_news_en,
-        config["watchlist_us"],
+        watchlist_us,
         config["news_categories_en"],
         default=[],
     )
@@ -197,7 +203,7 @@ def _run_week_ahead(config: dict) -> None:
     earnings = safe_fetch(
         "week_ahead.earnings",
         fetch_upcoming_earnings,
-        config["watchlist_us"],
+        watchlist_us,
         today,
         today + timedelta(days=4),  # through Friday
         default=[],

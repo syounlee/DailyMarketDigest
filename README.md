@@ -81,8 +81,9 @@ DailyMarketDigest/
 ├── .gitignore
 ├── requirements.txt
 ├── config/
-│   └── watchlist.yaml        # tickers, indices, news keywords (edit this to customize)
+│   └── watchlist.yaml        # holdings, indices, news keywords (edit this to customize)
 ├── src/
+│   ├── config_utils.py       # tickers() - extracts ticker symbols from watchlist holding entries
 │   ├── market_data.py        # fetch_quotes() via yfinance (US + KR tickers)
 │   ├── news_data.py          # fetch_all() English headlines via Finnhub (company + general news)
 │   ├── news_data_kr.py       # fetch_all_kr() Korean headlines via Naver Search API
@@ -113,9 +114,21 @@ DailyMarketDigest/
    (see [Credentials](#credentials-needed) below — you don't need all of them, only the
    ones matching your chosen `LLM_PROVIDER`).
 
-3. **Edit your watchlist**: `config/watchlist.yaml` ships with placeholder tickers
+3. **Edit your watchlist**: `config/watchlist.yaml` ships with placeholder holdings
    (`AAPL`, `MSFT`, `SPY`, Samsung Electronics, SK Hynix). Replace with your own —
    Korean tickers need a `.KS` (KOSPI) or `.KQ` (KOSDAQ) suffix, e.g. `005930.KS`.
+   Each `watchlist_us`/`watchlist_kr` entry is a small object, not a bare ticker string:
+   ```yaml
+   watchlist_us:
+     - ticker: AAPL
+       buy_date: 2026-01-15   # optional
+       buy_price: 150.00      # optional
+       shares: 10              # optional
+       cost: 1512.50           # optional - entered separately, not computed, so it can include fees
+   ```
+   Only `ticker` is required. The rest are stored for a future gain/loss feature and don't
+   affect the emails yet. (Data-fetching code reads just the ticker via
+   `src/config_utils.py`'s `tickers()` helper.)
 
 ## Credentials needed
 
