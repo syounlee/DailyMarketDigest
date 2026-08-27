@@ -17,7 +17,7 @@ digest with an LLM, and emails it every morning.
 
 ```mermaid
 flowchart TD
-    Start(["main.py — daily run"]) --> Config["Load config/watchlist.yaml"]
+    Start(["main.py — daily run"]) --> Config["Load config/watchlist.yaml + config/people.yaml"]
 
     Config --> Market["market_data.py<br/>fetch US + KR quotes (yfinance)"]
     Config --> NewsEN["news_data.py<br/>fetch English news (Finnhub)"]
@@ -81,7 +81,8 @@ DailyMarketDigest/
 ├── .gitignore
 ├── requirements.txt
 ├── config/
-│   └── watchlist.yaml        # holdings, indices, news keywords (edit this to customize)
+│   ├── watchlist.yaml        # shared: indices, news keywords (same for everyone)
+│   └── people.yaml           # per-person: name, email, holdings - each person gets their own personalized email
 ├── src/
 │   ├── config_utils.py       # tickers() - extracts ticker symbols from watchlist holding entries
 │   ├── market_data.py        # fetch_quotes() via yfinance (US + KR tickers)
@@ -114,21 +115,29 @@ DailyMarketDigest/
    (see [Credentials](#credentials-needed) below — you don't need all of them, only the
    ones matching your chosen `LLM_PROVIDER`).
 
-3. **Edit your watchlist**: `config/watchlist.yaml` ships with placeholder holdings
-   (`AAPL`, `MSFT`, `SPY`, Samsung Electronics, SK Hynix). Replace with your own —
-   Korean tickers need a `.KS` (KOSPI) or `.KQ` (KOSDAQ) suffix, e.g. `005930.KS`.
-   Each `watchlist_us`/`watchlist_kr` entry is a small object, not a bare ticker string:
+3. **Edit `config/people.yaml`**: each person gets their own personalized email — the
+   shared market overview (US/KR indices, general news) is identical for everyone, but
+   the Watchlist section (and news about those specific holdings) only shows up in that
+   person's own email. Ships with one placeholder person:
    ```yaml
-   watchlist_us:
-     - ticker: AAPL
-       buy_date: 2026-01-15   # optional
-       buy_price: 150.00      # optional
-       shares: 10              # optional
-       cost: 1512.50           # optional - entered separately, not computed, so it can include fees
+   people:
+     - id: seung
+       name: Seung
+       email: syounlee@naver.com
+       watchlist_us:
+         - ticker: AAPL
+           buy_date: 2026-01-15   # optional
+           buy_price: 150.00      # optional
+           shares: 10              # optional
+           cost: 1512.50           # optional - entered separately, not computed, so it can include fees
+       watchlist_kr:
+         - ticker: 005930.KS
    ```
-   Only `ticker` is required. The rest are stored for a future gain/loss feature and don't
-   affect the emails yet. (Data-fetching code reads just the ticker via
-   `src/config_utils.py`'s `tickers()` helper.)
+   Only `id`, `name`, `email`, and each holding's `ticker` are required — `buy_date`/
+   `buy_price`/`shares`/`cost` are stored for a future gain/loss feature and don't affect
+   the emails yet. Korean tickers need a `.KS` (KOSPI) or `.KQ` (KOSDAQ) suffix. Add more
+   people by copying the block. `config/watchlist.yaml` now only holds the shared
+   indices/news config — no per-person data.
 
 ## Credentials needed
 
@@ -144,8 +153,10 @@ DailyMarketDigest/
 `market_data.py` needs no key — it uses `yfinance` (Yahoo Finance), which is free and
 unauthenticated for both US and Korean tickers.
 
-`DIGEST_RECIPIENT` accepts a comma-separated list to send the digest to multiple people,
-e.g. `DIGEST_RECIPIENT=you@example.com,other@example.com`.
+`DIGEST_RECIPIENT` is no longer read by `main.py` — recipients now come from each
+person's `email` in `config/people.yaml`, since each person gets their own personalized
+email rather than everyone receiving an identical broadcast. The env var still works as
+`src/email_sender.py`'s own standalone-test default (`python -m src.email_sender`).
 
 ## Running manually
 

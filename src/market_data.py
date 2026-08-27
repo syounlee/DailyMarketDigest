@@ -45,12 +45,14 @@ if __name__ == "__main__":
 
     with open("config/watchlist.yaml") as f:
         config = yaml.safe_load(f)
+    with open("config/people.yaml") as f:
+        first_person = yaml.safe_load(f)["people"][0]
 
     all_tickers = (
         config["indices_us"]
         + config["indices_kr"]
-        + tickers(config["watchlist_us"])
-        + tickers(config["watchlist_kr"])
+        + tickers(first_person["watchlist_us"])
+        + tickers(first_person["watchlist_kr"])
     )
     for q in fetch_quotes(all_tickers):
         print(q)
