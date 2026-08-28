@@ -10,7 +10,7 @@
 people:
   - id: seung
     name: Seung
-    email: syounlee@naver.com
+    email: lee.seung.youn@gmail.com
     watchlist_us:
       - ticker: AAPL      # placeholder - edit to your own holdings
       - ticker: MSFT
