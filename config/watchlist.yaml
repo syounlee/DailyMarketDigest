@@ -1,8 +1,8 @@
 indices_us: ["^GSPC", "^IXIC", "^DJI"]     # S&P 500, Nasdaq, Dow
 indices_kr: ["^KS11", "^KQ11"]             # KOSPI Composite, KOSDAQ Composite
 
-watchlist_us: ["AAPL", "MSFT", "SPY"]      # placeholder - edit to your own tickers
-watchlist_kr: ["005930.KS", "000660.KS"]   # placeholder: Samsung Electronics, SK Hynix
-
 news_categories_en: ["general"]            # Finnhub categories: general, forex, crypto, merger
 news_keywords_kr: ["코스피", "코스닥"]
+
+# Per-person holdings (watchlist_us/watchlist_kr) live in config/people.yaml now -
+# each person gets their own personalized Watchlist section in their own email.

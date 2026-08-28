@@ -4,10 +4,17 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 
-def send_email(subject: str, html_body: str, text_body: str | None = None) -> None:
+def send_email(
+    subject: str, html_body: str, text_body: str | None = None, recipient: str | None = None
+) -> None:
+    """`recipient` overrides the default - main.py passes each person's own
+    email explicitly now (see config/people.yaml). Falls back to
+    DIGEST_RECIPIENT/GMAIL_ADDRESS when not given, mainly for this module's
+    own standalone test below.
+    """
     sender = os.environ.get("GMAIL_ADDRESS")
     password = os.environ.get("GMAIL_APP_PASSWORD")
-    recipient = os.environ.get("DIGEST_RECIPIENT", sender)
+    recipient = recipient or os.environ.get("DIGEST_RECIPIENT", sender)
 
     if not sender or not password:
         raise RuntimeError("GMAIL_ADDRESS / GMAIL_APP_PASSWORD are not set in the environment")

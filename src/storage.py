@@ -17,13 +17,24 @@ def save_today(data: dict, day: date | None = None) -> None:
 
 def load_yesterday(day: date | None = None) -> dict | None:
     day = day or date.today()
-    path = _path_for(day - timedelta(days=1))
+    return load_snapshot(day - timedelta(days=1))
+
+
+def load_snapshot(target_date: date) -> dict | None:
+    """Load the snapshot saved for any given date, or None if it doesn't exist."""
+    path = _path_for(target_date)
     if not path.exists():
         return None
     return json.loads(path.read_text())
 
 
 if __name__ == "__main__":
-    save_today({"example": "data"})
-    print("saved today's snapshot")
-    print("yesterday's snapshot:", load_yesterday())
+    # Read-only self-test - never writes to today's real snapshot file, so
+    # running this can't clobber production data from the actual daily run.
+    test_day = date(1999, 1, 1)
+    save_today({"example": "data"}, day=test_day)
+    print("saved test snapshot for", test_day)
+    print("loaded back:", load_snapshot(test_day))
+    print("yesterday's real snapshot:", load_yesterday())
+    _path_for(test_day).unlink()
+    print("cleaned up test snapshot")

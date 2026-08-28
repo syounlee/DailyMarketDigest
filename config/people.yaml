@@ -1,0 +1,28 @@
+# Each person gets their own personalized email: the shared market overview
+# (US/KR indices, general news) is identical for everyone, but the Watchlist
+# section - and news about those specific holdings - only shows up in that
+# person's own email.
+#
+# Same per-holding schema as before: only `ticker` is required.
+# buy_date/buy_price/shares/cost are optional, stored for a future gain/loss
+# feature, and don't affect the emails yet.
+
+people:
+  - id: seung
+    name: Seung
+    email: syounlee@naver.com
+    watchlist_us:
+      - ticker: AAPL      # placeholder - edit to your own holdings
+      - ticker: MSFT
+      - ticker: SPY
+    watchlist_kr:
+      - ticker: 005930.KS   # placeholder: Samsung Electronics
+      - ticker: 000660.KS   # placeholder: SK Hynix
+
+  # Add another person by copying the block above, e.g.:
+  # - id: someone_else
+  #   name: Someone Else
+  #   email: someone@example.com
+  #   watchlist_us:
+  #     - ticker: NVDA
+  #   watchlist_kr: []
