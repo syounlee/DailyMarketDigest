@@ -39,12 +39,30 @@ def format_index_quotes(quotes: list[dict]) -> str:
 
 
 def format_news_text(articles: list[dict]) -> str:
+    """Compact form fed to the LLM as prompt context - no URLs here, they're
+    just noise for a model reasoning about content, not clickable anyway.
+    """
     if not articles:
         return "(none)"
     lines = []
     for a in articles:
         extra = f" - {a['description']}" if a.get("description") else ""
         lines.append(f"- {a['title']}{extra} ({a.get('source', a.get('url', ''))})")
+    return "\n".join(lines)
+
+
+def format_news_text_with_links(articles: list[dict]) -> str:
+    """Full form for the plain-text email body - includes the URL so links
+    are still usable (as text) in non-HTML mail clients.
+    """
+    if not articles:
+        return "(none)"
+    lines = []
+    for a in articles:
+        src = a.get("source") or ""
+        url = a.get("url") or ""
+        tail = " ".join(p for p in (f"({src})" if src else "", url) if p)
+        lines.append(f"- {a['title']} {tail}".rstrip())
     return "\n".join(lines)
 
 
@@ -100,9 +118,33 @@ def news_items_html(items: list[dict]) -> str:
     out = []
     for a in items:
         title = html.escape(str(a.get("title", "")))
-        src = html.escape(str(a.get("source") or a.get("url", "")))
-        out.append(f'<div class="newsitem">{title}<span class="src">{src}</span></div>')
+        url = a.get("url") or ""
+        title_html = (
+            f'<a href="{html.escape(url)}" target="_blank" rel="noopener">{title}</a>'
+            if url
+            else title
+        )
+        src = html.escape(str(a.get("source") or url))
+        out.append(f'<div class="newsitem">{title_html}<span class="src">{src}</span></div>')
     return "".join(out)
+
+
+def takeaways_html(takeaways: list[str]) -> str:
+    """Renders the LLM-synthesized "Key Takeaways" bullets, if any. Returns ""
+    (no section at all) when there's nothing beyond what the commentary
+    paragraphs already cover - an empty section would just be noise.
+    """
+    if not takeaways:
+        return ""
+    items = "".join(f'<div class="newsitem">{html.escape(t)}</div>' for t in takeaways)
+    return f'<div class="sectionlabel">Key Takeaways</div>{items}'
+
+
+def takeaways_text(takeaways: list[str]) -> str:
+    if not takeaways:
+        return ""
+    lines = ["KEY TAKEAWAYS"] + [f"- {t}" for t in takeaways]
+    return "\n".join(lines) + "\n"
 
 
 BASE_CSS = """\
@@ -148,6 +190,8 @@ BASE_CSS = """\
     background: #FFFFFF; border: 1px solid #E4E6EA; border-radius: 10px;
     padding: 10px 12px; margin-bottom: 6px; font-size: 12.5px;
   }
+  .newsitem a { color: #4C5FD5; text-decoration: none; }
+  .newsitem a:hover { text-decoration: underline; }
   .newsitem .src { display: block; color: #9199A3; font-size: 11px; margin-top: 3px; }
   .note {
     background: #FFF8E9; border: 1px solid #F0DFAE; border-radius: 10px;

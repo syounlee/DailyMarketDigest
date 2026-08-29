@@ -17,13 +17,15 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.formatting import (
-    chip_html,
     format_index_quotes,
     format_news_text,
+    format_news_text_with_links,
     format_stock_quotes,
     index_cards_html,
     news_items_html,
     render_email_shell,
+    takeaways_html,
+    takeaways_text,
     watchlist_rows_html,
 )
 from src.llm_provider import get_chat_model
@@ -33,21 +35,30 @@ from src.llm_provider import get_chat_model
 # ---------------------------------------------------------------------------
 
 WEEKLY_COMMENTARY_SYSTEM_PROMPT = """\
-You write a short weekly market recap for a Sunday digest email. Given this week's US and \
-Korean index/watchlist performance (week-over-week % change) plus a sampling of this week's \
-news headlines, write exactly two short paragraphs (2-3 sentences each), plain English, no \
-markdown, no headers.
+You write content for a Sunday weekly market recap email. Given this week's US and Korean \
+index/watchlist performance (week-over-week % change) plus a sampling of this week's news \
+headlines, produce:
+
+1. Two short paragraphs (2-3 sentences each) on how the US and Korean markets did this week.
+2. Up to 3 short "key takeaways" - notable stories from the week's headlines worth calling \
+   out, even ones not tied to a specific price move. Each takeaway is one short sentence.
 
 Only state a cause for a weekly move if a provided headline actually supports it - never \
 invent or guess a reason. If nothing in the headlines explains a move, just report the \
-number without speculating why.
+number without speculating why. Only include a takeaway if it is actually grounded in a \
+headline you were given - never invent a story or event that wasn't provided.
 
 If a % change is shown as "n/a", that means no prior-week data is available for comparison -
 say so plainly (e.g. "no week-over-week comparison available yet"). Never treat "n/a" as 0%
 or "unchanged" - those are different things and reporting "n/a" as flat/unchanged is wrong.
 
-Respond with exactly two lines, starting literally with "US:" and "KR:" - nothing else, \
-no other text before or after.
+Respond in exactly this format, nothing else:
+US: <paragraph>
+KR: <paragraph>
+TAKEAWAYS: <takeaway 1> | <takeaway 2> | <takeaway 3>
+
+Omit the TAKEAWAYS line entirely if nothing in the headlines is worth calling out beyond
+the two paragraphs above.
 """
 
 WEEKLY_COMMENTARY_HUMAN_TEMPLATE = """\
@@ -81,16 +92,22 @@ def _weekly_change(this_week: list[dict], last_week: list[dict] | None) -> list[
     return out
 
 
-def _parse_commentary(raw: str) -> tuple[str, str]:
+def _parse_commentary(raw: str) -> tuple[str, str, list[str]]:
     import re
 
     us_match = re.search(r"US:\s*(.*?)(?=\n?KR:|\Z)", raw, re.DOTALL | re.IGNORECASE)
-    kr_match = re.search(r"KR:\s*(.*)", raw, re.DOTALL | re.IGNORECASE)
+    kr_match = re.search(r"KR:\s*(.*?)(?=\n?TAKEAWAYS:|\Z)", raw, re.DOTALL | re.IGNORECASE)
+    tk_match = re.search(r"TAKEAWAYS:\s*(.*)", raw, re.DOTALL | re.IGNORECASE)
+
     us = us_match.group(1).strip() if us_match else ""
     kr = kr_match.group(1).strip() if kr_match else ""
+    takeaways = []
+    if tk_match:
+        takeaways = [t.strip() for t in tk_match.group(1).strip().split("|") if t.strip()]
+
     if not us and not kr:
         us = raw.strip()
-    return us, kr
+    return us, kr, takeaways
 
 
 def build_weekly_summary(
@@ -101,7 +118,7 @@ def build_weekly_summary(
     last_week_kr_indices: list[dict] | None,
     last_week_watchlist: list[dict] | None,
     week_news_en: list[dict],
-    week_news_kr_translated: list[str],
+    week_news_kr_translated: list[dict],
     date_str: str,
 ) -> tuple[str, str]:
     """Returns (html_body, text_body). week-over-week % change (this Friday's
@@ -114,7 +131,9 @@ def build_weekly_summary(
     has_history = bool(last_week_us_indices or last_week_kr_indices)
 
     week_news_text = (
-        "\n".join(f"- {t}" for t in week_news_kr_translated) if week_news_kr_translated else "(none)"
+        "\n".join(f"- {a['title']}" for a in week_news_kr_translated)
+        if week_news_kr_translated
+        else "(none)"
     )
     prompt = ChatPromptTemplate.from_messages(
         [("system", WEEKLY_COMMENTARY_SYSTEM_PROMPT), ("human", WEEKLY_COMMENTARY_HUMAN_TEMPLATE)]
@@ -128,9 +147,7 @@ def build_weekly_summary(
             "week_news": format_news_text(week_news_en) + "\n" + week_news_text,
         }
     )
-    us_commentary, kr_commentary = _parse_commentary(raw)
-
-    kr_news_items = [{"title": t, "source": "Translated · Naver"} for t in week_news_kr_translated]
+    us_commentary, kr_commentary, takeaways = _parse_commentary(raw)
 
     note_html = (
         ""
@@ -152,9 +169,11 @@ def build_weekly_summary(
     <div class="sectionlabel">Watchlist — This Week</div>
     <table>{watchlist_rows_html(watchlist_weekly)}</table>
 
+    {takeaways_html(takeaways)}
+
     <div class="sectionlabel">This Week's Headlines</div>
     {news_items_html(week_news_en)}
-    {news_items_html(kr_news_items)}
+    {news_items_html(week_news_kr_translated)}
     """
     html_body = render_email_shell(date_str, body, subtitle="Weekly Recap")
 
@@ -164,9 +183,12 @@ def build_weekly_summary(
     lines += ["US MARKET (week-over-week)", format_index_quotes(us_weekly), "", us_commentary, ""]
     lines += ["KOREA MARKET (week-over-week)", format_index_quotes(kr_weekly), "", kr_commentary, ""]
     lines += ["WATCHLIST (week-over-week)", format_stock_quotes(watchlist_weekly), ""]
-    lines += ["THIS WEEK'S HEADLINES", format_news_text(week_news_en)]
+    tk = takeaways_text(takeaways)
+    if tk:
+        lines += [tk]
+    lines += ["THIS WEEK'S HEADLINES", format_news_text_with_links(week_news_en)]
     if week_news_kr_translated:
-        lines += ["- " + t for t in week_news_kr_translated]
+        lines += [format_news_text_with_links(week_news_kr_translated)]
     lines += ["", "Sent by DailyMarketDigest · Data via yfinance, Finnhub, Naver API Hub"]
     text_body = "\n".join(lines)
 
@@ -288,7 +310,7 @@ def build_week_ahead(
     lines += ["KOREA INDICES (Friday close)", format_index_quotes(last_close_kr_indices), ""]
     lines += ["EARNINGS THIS WEEK", _earnings_text(earnings, watchlist_quotes), ""]
     lines += ["WHAT TO WATCH", commentary, ""]
-    lines += ["TODAY'S HEADLINES", format_news_text(today_news_en)]
+    lines += ["TODAY'S HEADLINES", format_news_text_with_links(today_news_en)]
     lines += ["", "Sent by DailyMarketDigest · Data via yfinance, Finnhub, Naver API Hub"]
     text_body = "\n".join(lines)
 
@@ -308,11 +330,25 @@ if __name__ == "__main__":
     us_indices = fetch_quotes(["^GSPC", "^IXIC"])
     kr_indices = fetch_quotes(["^KS11", "^KQ11"])
     watchlist = fetch_quotes(["AAPL", "005930.KS"])
-    fake_news_en = [{"title": "Fed signals steady rates into next quarter", "source": "Reuters"}]
+    fake_news_en = [
+        {
+            "title": "Fed signals steady rates into next quarter",
+            "source": "Reuters",
+            "url": "https://example.com/fed-rates",
+        }
+    ]
+    fake_news_kr_translated = [
+        {
+            "title": "Samsung Electronics beats Q3 earnings estimates",
+            "url": "https://example.com/samsung-q3",
+            "source": "Translated · Naver",
+        }
+    ]
 
     print("=== WEEKLY SUMMARY (no last-week data) ===")
     html_body, text_body = build_weekly_summary(
-        us_indices, kr_indices, watchlist, None, None, None, fake_news_en, [], "Sun, Aug 30"
+        us_indices, kr_indices, watchlist, None, None, None,
+        fake_news_en, fake_news_kr_translated, "Sun, Aug 30",
     )
     print(text_body)
 

@@ -9,10 +9,13 @@ from langchain_core.prompts import ChatPromptTemplate
 from src.formatting import (
     format_index_quotes,
     format_news_text,
+    format_news_text_with_links,
     format_stock_quotes,
     index_cards_html,
     news_items_html,
     render_email_shell,
+    takeaways_html,
+    takeaways_text,
     watchlist_rows_html,
 )
 from src.llm_provider import get_chat_model
@@ -22,8 +25,9 @@ from src.llm_provider import get_chat_model
 KR_TRANSLATE_SYSTEM_PROMPT = """\
 You translate Korean financial news headlines into English for a US-based reader.
 Output exactly one line per input headline, in the same order, translated faithfully -
-no bullets, no numbering, no commentary, no preamble. Just the translated headlines,
-one per line.
+no bullets, no numbering, no commentary, no preamble. Just the translated headline text
+itself - the input lines end with a source name in parentheses, e.g. "(naver)"; that's
+metadata, not part of the headline, so leave it out of your translation.
 """
 
 KR_TRANSLATE_HUMAN_TEMPLATE = """\
@@ -34,21 +38,31 @@ KR_TRANSLATE_HUMAN_TEMPLATE = """\
 # Stage 2: write short grounded commentary in English. Runs on a strong English
 # model (e.g. Llama 3.1) when LLM_PROVIDER=ollama. All numbers/prices in the
 # final email are rendered directly from fetched data below, not by this model -
-# it only ever writes the two commentary paragraphs, which keeps it from
-# inventing causes for price moves that aren't actually in the headlines.
+# it only ever writes text, which keeps it from inventing causes for price
+# moves (or events) that aren't actually in the headlines.
 COMMENTARY_SYSTEM_PROMPT = """\
-You write short market commentary for a daily digest email. Given US and Korean market \
-data plus news headlines, write exactly two short paragraphs (2-3 sentences each), plain \
-English, no markdown, no headers.
+You write content for a daily market digest email. Given US and Korean market data plus \
+news headlines, produce:
+
+1. Two short paragraphs (2-3 sentences each) on what's driving today's US and Korean markets.
+2. Up to 3 short "key takeaways" - notable stories from the headlines worth the reader's \
+   attention, even ones not tied to a specific price move (e.g. an upcoming earnings date \
+   mentioned in a headline, a regulatory development, a notable analyst call). Each takeaway \
+   is one short sentence.
 
 Only state a cause for a price move if a provided headline actually supports it - never \
-invent or guess a reason. If nothing in the headlines explains a move, just don't speculate \
-about it. If a watchlist ticker moved more than 2%, mention it specifically if a headline \
-explains why. If a previous day's snapshot is provided, you may briefly note day-over-day \
-movement.
+invent or guess a reason. Only include a takeaway if it is actually grounded in a headline \
+you were given - never invent a story, event, or date that wasn't provided. If a watchlist \
+ticker moved more than 2%, mention it specifically if a headline explains why. If a previous \
+day's snapshot is provided, you may briefly note day-over-day movement.
 
-Respond with exactly two lines, starting literally with "US:" and "KR:" - nothing else, \
-no other text before or after.
+Respond in exactly this format, nothing else:
+US: <paragraph>
+KR: <paragraph>
+TAKEAWAYS: <takeaway 1> | <takeaway 2> | <takeaway 3>
+
+Omit the TAKEAWAYS line entirely if nothing in the headlines is worth calling out beyond
+the two paragraphs above - don't pad it with restatements of the price commentary.
 """
 
 COMMENTARY_HUMAN_TEMPLATE = """\
@@ -72,8 +86,13 @@ COMMENTARY_HUMAN_TEMPLATE = """\
 """
 
 
-def translate_kr_news(news_kr: list[dict]) -> list[str]:
-    """Stage 1: translate Korean headlines to English, one string per headline."""
+def translate_kr_news(news_kr: list[dict]) -> list[dict]:
+    """Stage 1: translate Korean headlines to English. Returns one dict per
+    headline with the translated title plus the ORIGINAL article's url/source
+    (paired by position - the prompt asks for exactly one output line per
+    input headline, in the same order) so the digest can still link back to
+    the source article even after translation.
+    """
     if not news_kr:
         return []
 
@@ -83,25 +102,42 @@ def translate_kr_news(news_kr: list[dict]) -> list[str]:
     chain = prompt | get_chat_model("kr") | StrOutputParser()
     raw = chain.invoke({"news_kr": format_news_text(news_kr)})
 
-    lines = []
+    titles = []
     for line in raw.strip().splitlines():
         line = line.strip()
         if not line:
             continue
         line = re.sub(r"^[-•*]\s*", "", line)
         line = re.sub(r"^\d+[.)]\s*", "", line)
-        lines.append(line)
-    return lines
+        titles.append(line)
+
+    results = []
+    for i, title in enumerate(titles):
+        original = news_kr[i] if i < len(news_kr) else {}
+        results.append(
+            {
+                "title": title,
+                "url": original.get("url", ""),
+                "source": "Translated · Naver",
+            }
+        )
+    return results
 
 
-def _parse_commentary(raw: str) -> tuple[str, str]:
+def _parse_commentary(raw: str) -> tuple[str, str, list[str]]:
     us_match = re.search(r"US:\s*(.*?)(?=\n?KR:|\Z)", raw, re.DOTALL | re.IGNORECASE)
-    kr_match = re.search(r"KR:\s*(.*)", raw, re.DOTALL | re.IGNORECASE)
+    kr_match = re.search(r"KR:\s*(.*?)(?=\n?TAKEAWAYS:|\Z)", raw, re.DOTALL | re.IGNORECASE)
+    tk_match = re.search(r"TAKEAWAYS:\s*(.*)", raw, re.DOTALL | re.IGNORECASE)
+
     us = us_match.group(1).strip() if us_match else ""
     kr = kr_match.group(1).strip() if kr_match else ""
+    takeaways = []
+    if tk_match:
+        takeaways = [t.strip() for t in tk_match.group(1).strip().split("|") if t.strip()]
+
     if not us and not kr:
         us = raw.strip()
-    return us, kr
+    return us, kr, takeaways
 
 
 def _format_previous_snapshot(snapshot: dict | None) -> str:
@@ -128,16 +164,16 @@ def _generate_commentary(
     market_data_kr: list[dict],
     watchlist_quotes: list[dict],
     news_en: list[dict],
-    kr_translated: list[str],
+    kr_translated: list[dict],
     previous_snapshot: dict | None,
-) -> tuple[str, str]:
+) -> tuple[str, str, list[str]]:
     prompt = ChatPromptTemplate.from_messages(
         [("system", COMMENTARY_SYSTEM_PROMPT), ("human", COMMENTARY_HUMAN_TEMPLATE)]
     )
     chain = prompt | get_chat_model("en") | StrOutputParser()
 
     news_kr_translated_text = (
-        "\n".join(f"- {line}" for line in kr_translated) if kr_translated else "(none)"
+        "\n".join(f"- {a['title']}" for a in kr_translated) if kr_translated else "(none)"
     )
     raw = chain.invoke(
         {
@@ -154,9 +190,8 @@ def _generate_commentary(
 
 def _render_html(
     date_str, market_data_us, market_data_kr, watchlist_quotes, news_en, kr_translated,
-    us_commentary, kr_commentary,
+    us_commentary, kr_commentary, takeaways,
 ) -> str:
-    kr_news_items = [{"title": t, "source": "Translated · Naver"} for t in kr_translated]
     body = f"""\
     <div class="sectionlabel">US Market</div>
     <div class="cards">{index_cards_html(market_data_us)}</div>
@@ -169,24 +204,29 @@ def _render_html(
     <div class="sectionlabel">Watchlist</div>
     <table>{watchlist_rows_html(watchlist_quotes)}</table>
 
+    {takeaways_html(takeaways)}
+
     <div class="sectionlabel">Headlines</div>
     {news_items_html(news_en)}
-    {news_items_html(kr_news_items)}
+    {news_items_html(kr_translated)}
     """
     return render_email_shell(date_str, body)
 
 
 def _render_text(
     date_str, market_data_us, market_data_kr, watchlist_quotes, news_en, kr_translated,
-    us_commentary, kr_commentary,
+    us_commentary, kr_commentary, takeaways,
 ) -> str:
     lines = [f"DailyMarketDigest — {date_str}", ""]
     lines += ["US MARKET", format_index_quotes(market_data_us), "", us_commentary, ""]
     lines += ["KOREA MARKET", format_index_quotes(market_data_kr), "", kr_commentary, ""]
     lines += ["WATCHLIST", format_stock_quotes(watchlist_quotes), ""]
-    lines += ["HEADLINES", format_news_text(news_en)]
+    tk = takeaways_text(takeaways)
+    if tk:
+        lines += [tk]
+    lines += ["HEADLINES", format_news_text_with_links(news_en)]
     if kr_translated:
-        lines += ["- " + t for t in kr_translated]
+        lines += [format_news_text_with_links(kr_translated)]
     lines += ["", "Sent by DailyMarketDigest · Data via yfinance, Finnhub, Naver API Hub"]
     return "\n".join(lines)
 
@@ -201,14 +241,14 @@ def build_digest(
 ) -> tuple[str, str]:
     """Returns (html_body, text_body)."""
     kr_translated = translate_kr_news(news_kr)
-    us_commentary, kr_commentary = _generate_commentary(
+    us_commentary, kr_commentary, takeaways = _generate_commentary(
         market_data_us, market_data_kr, watchlist_quotes, news_en, kr_translated, previous_snapshot
     )
 
     date_str = date.today().strftime("%A, %B %-d, %Y")
     args = (
         date_str, market_data_us, market_data_kr, watchlist_quotes, news_en, kr_translated,
-        us_commentary, kr_commentary,
+        us_commentary, kr_commentary, takeaways,
     )
     return _render_html(*args), _render_text(*args)
 
@@ -225,13 +265,18 @@ if __name__ == "__main__":
     watchlist = fetch_quotes(["AAPL", "005930.KS"])
 
     fake_news_en = [
-        {"title": "Fed signals steady rates into next quarter", "source": "Reuters"},
+        {
+            "title": "Fed signals steady rates into next quarter",
+            "source": "Reuters",
+            "url": "https://example.com/fed-rates",
+        },
     ]
     fake_news_kr = [
         {
             "title": "삼성전자, 3분기 실적 예상치 상회",
             "description": "반도체 부문 회복세가 실적을 견인했다.",
             "source": "naver",
+            "url": "https://example.com/samsung-q3",
         },
     ]
 
