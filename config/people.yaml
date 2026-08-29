@@ -12,12 +12,53 @@ people:
     name: Seung
     email: lee.seung.youn@gmail.com
     watchlist_us:
-      - ticker: AAPL      # placeholder - edit to your own holdings
-      - ticker: MSFT
-      - ticker: SPY
+      # buy_price awaiting dollar figures - shares confirmed from portfolio screenshot
+      - ticker: SOXL   # Direxion Daily Semiconductor Bull 3X
+        shares: 5
+      - ticker: MUU    # Direxion Daily MU (Micron) Bull 2X ETF
+        shares: 10
+      - ticker: NFLX   # Netflix
+        shares: 3
+      - ticker: SSPC   # Leverage Shares 2X Short SPCX Daily ETF
+        shares: 20
+      - ticker: MVLL   # GraniteShares 2x Long MRVL (Marvell) Daily ETF
+        shares: 6
+      - ticker: GWH    # ESS Tech
+        shares: 2
     watchlist_kr:
-      - ticker: 005930.KS   # placeholder: Samsung Electronics
-      - ticker: 000660.KS   # placeholder: SK Hynix
+      - ticker: 298020.KS   # 효성티앤씨 (Hyosung TNC)
+        shares: 3
+        buy_price: 322000
+      - ticker: 047050.KS   # 포스코인터내셔널 (POSCO International)
+        shares: 8
+        buy_price: 55048.38
+      - ticker: 005380.KS   # 현대차 (Hyundai Motor)
+        shares: 1
+        buy_price: 419500
+      - ticker: 267270.KS   # HD현대건설기계 (HD Hyundai Construction Equipment)
+        shares: 2
+        buy_price: 137162.5
+      - ticker: 000500.KS   # 가온전선 (Gaon Cable)
+        shares: 1
+        buy_price: 189220
+      - ticker: 102970.KS   # KODEX 증권 (ETF)
+        shares: 8
+        buy_price: 21588.75
+      - ticker: 043260.KQ   # 성호전자 (Sungho Electronics)
+        shares: 9
+        buy_price: 17540
+      - ticker: 069500.KS   # KODEX 200 (ETF)
+        shares: 1
+        buy_price: 133595
+      - ticker: 166090.KQ   # 하나머티리얼즈 (Hana Materials)
+        shares: 2
+        buy_price: 55265
+      - ticker: 120110.KS   # 코오롱인더 (Kolon Industries)
+        shares: 1
+        buy_price: 56000
+      - ticker: 486290.KS   # TIGER 미국나스닥100타겟데일리커버드콜
+        shares: 3
+        buy_price: 11520
 
   # Add another person by copying the block above, e.g.:
   # - id: someone_else
