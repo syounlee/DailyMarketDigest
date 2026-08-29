@@ -5,13 +5,16 @@ digest with an LLM, and emails it every morning.
 
 - **Stack**: plain Python + cron/launchd (a deterministic pipeline, not an autonomous agent — see [Notes](#notes--things-to-revisit-later) for why)
 - **Markets covered**: US (S&P 500, Nasdaq, Dow + your watchlist) and Korea (KOSPI, KOSDAQ + your watchlist)
-- **News**: English via Finnhub (real-time, ticker + market-category news), Korean via Naver Search API — folded into one English-language digest
-- **Synthesis**: LangChain, with a swappable LLM backend (Claude / Gemini / local Ollama). When using
-  Ollama, synthesis runs as two stages on two different local models: a Korean-specialized model
-  translates the Korean news, then a strong English model composes the full digest.
+- **News**: English via Finnhub (real-time, ticker + market-category news), Korean via Naver
+  Search API — Korean headlines are shown as-is (untranslated), commentary is in English
+- **Synthesis**: LangChain, with a swappable LLM backend (Claude / Gemini / local Ollama). One
+  model handles everything - it reads both English and Korean headlines directly and writes
+  English commentary grounded in both.
 - **Delivery**: email via Gmail SMTP
 - **Schedule-aware**: sends a different email format depending on the day — see
   [Day-of-week behavior](#day-of-week-behavior)
+- **Portfolio-aware**: tracks each person's actual holdings (shares, buy price, cost) and shows
+  total value/cost/gain-loss per currency — see [Portfolio Status](#portfolio-status)
 
 ## Process Flow
 
@@ -24,17 +27,14 @@ flowchart TD
     Config --> NewsKR["news_data_kr.py<br/>fetch Korean news (NAVER API HUB)"]
     Config --> Snap["storage.py<br/>load yesterday's snapshot"]
 
+    Market --> Portfolio["portfolio.py<br/>compute_totals() - value/cost/gain-loss per currency"]
     Market --> Synth
     NewsEN --> Synth
     NewsKR --> Synth
     Snap --> Synth
+    Portfolio --> Synth
 
-    subgraph Synth["synthesize.py"]
-        direction TB
-        S1["Stage 1 — translate_kr_news()<br/>Korean-specialized model (EXAONE 3.5)"]
-        S2["Stage 2 — build_digest()<br/>English composing model (Llama 3.1)"]
-        S1 --> S2
-    end
+    Synth["synthesize.py<br/>build_digest() - one model call, reads EN + KR headlines directly"]
 
     Synth --> Email["email_sender.py<br/>send digest via Gmail SMTP"]
     Email --> SaveSnap["storage.py<br/>save today's snapshot"]
@@ -46,12 +46,9 @@ flowchart TD
     FB --> Synth
 ```
 
-`Stage 1` only runs as a separate model call when `LLM_PROVIDER=ollama` (EXAONE → Llama 3.1
-handoff, see [Dual-model synthesis](#dual-model-synthesis-ollama-only)). With `claude` or
-`gemini`, both stages collapse into a single call on the one configured model. A failure in
-any data-fetch step is logged and falls back to an empty result rather than stopping the
-run — only a failure in the final email send aborts the whole pipeline. This diagram shows
-the Tue–Sat path specifically — see the next section for Sunday/Monday.
+A failure in any data-fetch step is logged and falls back to an empty result rather than
+stopping the run — only a failure in the final email send aborts the whole pipeline. This
+diagram shows the Tue–Sat path specifically — see the next section for Sunday/Monday.
 
 ## Day-of-week behavior
 
@@ -89,10 +86,11 @@ DailyMarketDigest/
 │   ├── news_data.py          # fetch_all() English headlines via Finnhub (company + general news)
 │   ├── news_data_kr.py       # fetch_all_kr() Korean headlines via Naver Search API
 │   ├── earnings_calendar.py  # fetch_upcoming_earnings() via Finnhub (US tickers only)
+│   ├── portfolio.py          # compute_totals() - per-currency value/cost/gain-loss, no LLM
 │   ├── storage.py            # daily JSON snapshots, load_yesterday()/load_snapshot()/save_today()
 │   ├── llm_provider.py       # get_chat_model(role) factory: claude | gemini | ollama (role picks the Ollama model)
 │   ├── formatting.py         # shared pure-Python rendering helpers (used by synthesize.py + weekly.py)
-│   ├── synthesize.py         # 2-stage LCEL: translate_kr_news() -> build_digest() -> daily digest
+│   ├── synthesize.py         # build_digest() -> daily digest (one LLM call for commentary)
 │   ├── weekly.py             # build_weekly_summary() (Sunday) + build_week_ahead() (Monday)
 │   └── email_sender.py       # send_email() via Gmail SMTP
 ├── data/
@@ -133,11 +131,27 @@ DailyMarketDigest/
        watchlist_kr:
          - ticker: 005930.KS
    ```
-   Only `id`, `name`, `email`, and each holding's `ticker` are required — `buy_date`/
-   `buy_price`/`shares`/`cost` are stored for a future gain/loss feature and don't affect
-   the emails yet. Korean tickers need a `.KS` (KOSPI) or `.KQ` (KOSDAQ) suffix. Add more
-   people by copying the block. `config/watchlist.yaml` now only holds the shared
-   indices/news config — no per-person data.
+   Only `id`, `name`, `email`, and each holding's `ticker` are required. `shares` and
+   `buy_price`/`cost` power the [Portfolio Status](#portfolio-status) section — fill them
+   in once you know your actual holdings, or leave them out to skip that section entirely
+   for a holding (it just won't contribute to the totals). `buy_date` is stored but not
+   used yet. Korean tickers need a `.KS` (KOSPI) or `.KQ` (KOSDAQ) suffix. Add more people
+   by copying the block. `config/watchlist.yaml` now only holds the shared indices/news
+   config — no per-person data.
+
+## Portfolio Status
+
+Computed by `src/portfolio.py` (pure Python, no LLM) and shown in the daily digest and
+weekly recap, right below the Watchlist table. For each currency (KRW for Korean holdings,
+USD for US holdings — kept separate, never added together), it sums:
+- **Value**: `price × shares` across all holdings priced in that currency
+- **Cost**: each holding's `cost` field if set, otherwise `buy_price × shares`
+- **Gain/loss**: value − cost, in both $ /₩ and %
+
+A holding only contributes once it has both `shares` and a matching live quote. If no
+holding in a currency group has a computable cost (`cost` or `buy_price` set), that
+group's totals still show `value` but omit the cost/gain-loss comparison rather than
+showing a misleading `$0` cost basis.
 
 ## Credentials needed
 
@@ -147,7 +161,7 @@ DailyMarketDigest/
 | `NAVER_CLIENT_ID` / `NAVER_CLIENT_SECRET` | [developers.naver.com](https://developers.naver.com) → register an app → enable the Search API | Korean news |
 | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) | only if `LLM_PROVIDER=claude` |
 | `GEMINI_API_KEY` | [aistudio.google.com](https://aistudio.google.com) | only if `LLM_PROVIDER=gemini` |
-| — (local install) | [ollama.com](https://ollama.com), then `ollama pull exaone3.5:7.8b` and `ollama pull llama3.1:8b` | only if `LLM_PROVIDER=ollama` |
+| — (local install) | [ollama.com](https://ollama.com), then `ollama pull llama3.1:8b` | only if `LLM_PROVIDER=ollama` |
 | `GMAIL_ADDRESS` / `GMAIL_APP_PASSWORD` | Google Account → Security → App Passwords (needs 2-Step Verification enabled) | sending the digest |
 
 `market_data.py` needs no key — it uses `yfinance` (Yahoo Finance), which is free and
@@ -203,31 +217,6 @@ LLM_PROVIDER=claude   # or: gemini | ollama
 ```
 No other code changes needed — `src/llm_provider.py` handles the swap.
 
-## Dual-model synthesis (Ollama only)
-
-When `LLM_PROVIDER=ollama`, synthesis runs as two sequential stages instead of one call,
-each on a different local model — `get_chat_model(role)` in `src/llm_provider.py` picks
-the model by role:
-
-1. **`translate_kr_news()`** (role `"kr"`) — translates/summarizes the Korean headlines
-   into English bullets. Uses `OLLAMA_MODEL_KR` (default `exaone3.5:7.8b`, LG's
-   Korean-English bilingual model — chosen because it's purpose-trained on Korean rather
-   than treating it as one of many secondary languages).
-2. **`build_digest()`** (role `"en"`) — writes the full digest from US/KR market data,
-   English news, and stage 1's translated Korean summary. Uses `OLLAMA_MODEL_EN` (default
-   `llama3.1:8b` — stronger general English instruction-following/writing quality).
-
-The two models are never loaded simultaneously — Ollama loads one, runs it, and swaps to
-the other for the next stage, which is why this works fine on 16GB of unified memory.
-For `claude`/`gemini`, `role` is ignored and the single configured model handles both
-stages (no split needed — hosted frontier models are already strong at Korean).
-
-To use different local models, override in `.env`:
-```
-OLLAMA_MODEL_KR=exaone3.5:7.8b
-OLLAMA_MODEL_EN=llama3.1:8b
-```
-
 ## Notes / things to revisit later
 
 - **Why "Digest" and not "Agent"**: this is a fixed, deterministic pipeline (same steps,
@@ -241,13 +230,15 @@ OLLAMA_MODEL_EN=llama3.1:8b
 - Snapshots (`data/snapshots/*.json`) currently only feed a yesterday-vs-today diff into
   the prompt; there's no multi-day trend analysis or queryable database — decided against
   for now, revisit if you want richer historical context later.
-- Korean headlines are summarized/translated into English before reaching the final digest
-  rather than kept bilingual — if you'd prefer a Korean-language section too, that's a
-  prompt change in `src/synthesize.py`.
-- Output quality is best with Claude/Gemini. With Ollama, the composing model (`OLLAMA_MODEL_EN`)
-  can sometimes invent a plausible-sounding but inaccurate cause for a price move instead of
-  sticking strictly to the fed-in headline — worth spot-checking digests occasionally,
-  especially with smaller local models.
+- Korean headlines are shown as-is (not translated) — the commentary model reads them
+  directly for grounding but writes its own paragraphs in English. Comprehension quality
+  for Korean input depends on the configured model; this read fine with `llama3.1:8b` in
+  testing, but a weaker local model might do worse at understanding Korean than EXAONE
+  did (the previous, now-removed, Korean-specialized translation stage).
+- Output quality is best with Claude/Gemini. With Ollama, the model can sometimes invent
+  a plausible-sounding but inaccurate cause for a price move instead of sticking strictly
+  to the fed-in headline — worth spot-checking digests occasionally, especially with
+  smaller local models.
 - `main.py` aborts (rather than falling back) if the email step itself fails, since a
   digest that isn't delivered isn't useful — check `data/digest.log` if a scheduled run
   produces no email.
