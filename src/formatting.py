@@ -147,6 +147,51 @@ def takeaways_text(takeaways: list[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _fmt_signed_amount(amount, currency) -> str:
+    sign = "+" if amount >= 0 else "-"
+    return f"{sign}{fmt_stock_price(abs(amount), currency)}"
+
+
+def portfolio_status_html(status: dict) -> str:
+    """Renders per-currency portfolio totals (KR holdings in KRW, US holdings
+    in USD, kept separate rather than added together) as cards, same visual
+    language as the index cards. Returns "" (no section) if status is empty.
+    """
+    if not status:
+        return ""
+    cards = []
+    for currency, s in status.items():
+        value_str = html.escape(fmt_stock_price(s["value"], currency))
+        sub = ""
+        if s.get("cost") is not None and s.get("gain_loss") is not None:
+            cost_str = html.escape(fmt_stock_price(s["cost"], currency))
+            gl_str = html.escape(_fmt_signed_amount(s["gain_loss"], currency))
+            sub = f'<div class="subtext">cost {cost_str} &middot; {gl_str}</div>'
+        cards.append(
+            f'<div class="card"><div class="name">Total Value ({currency})</div>'
+            f'<div class="price">{value_str}</div>{chip_html(s.get("gain_loss_pct"))}{sub}</div>'
+        )
+    return f'<div class="sectionlabel">Portfolio Status</div><div class="cards">{"".join(cards)}</div>'
+
+
+def portfolio_status_text(status: dict) -> str:
+    if not status:
+        return ""
+    lines = ["PORTFOLIO STATUS"]
+    for currency, s in status.items():
+        value_str = fmt_stock_price(s["value"], currency)
+        if s.get("cost") is not None and s.get("gain_loss") is not None:
+            cost_str = fmt_stock_price(s["cost"], currency)
+            gl_str = _fmt_signed_amount(s["gain_loss"], currency)
+            lines.append(
+                f"- Total ({currency}): {value_str} "
+                f"(cost {cost_str}, {gl_str} / {s['gain_loss_pct']:+.2f}%)"
+            )
+        else:
+            lines.append(f"- Total ({currency}): {value_str} (cost basis unknown)")
+    return "\n".join(lines) + "\n"
+
+
 BASE_CSS = """\
   * { box-sizing: border-box; }
   body {
@@ -172,6 +217,7 @@ BASE_CSS = """\
   }
   .card .name { font-size: 11.5px; color: #6B7280; margin-bottom: 4px; }
   .card .price { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .card .subtext { font-size: 10.5px; color: #9199A3; margin-top: 4px; font-variant-numeric: tabular-nums; }
   .chip {
     display: inline-block; margin-top: 5px; padding: 2px 7px; border-radius: 100px;
     font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;

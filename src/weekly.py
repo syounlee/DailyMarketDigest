@@ -23,6 +23,8 @@ from src.formatting import (
     format_stock_quotes,
     index_cards_html,
     news_items_html,
+    portfolio_status_html,
+    portfolio_status_text,
     render_email_shell,
     takeaways_html,
     takeaways_text,
@@ -37,11 +39,13 @@ from src.llm_provider import get_chat_model
 WEEKLY_COMMENTARY_SYSTEM_PROMPT = """\
 You write content for a Sunday weekly market recap email. Given this week's US and Korean \
 index/watchlist performance (week-over-week % change) plus a sampling of this week's news \
-headlines, produce:
+headlines (some Korean headlines are in Korean - read them, but always write your response \
+in English), produce:
 
 1. Two short paragraphs (2-3 sentences each) on how the US and Korean markets did this week.
 2. Up to 3 short "key takeaways" - notable stories from the week's headlines worth calling \
-   out, even ones not tied to a specific price move. Each takeaway is one short sentence.
+   out, even ones not tied to a specific price move. Each takeaway is one short sentence, \
+   in English, even when it summarizes a Korean headline.
 
 Only state a cause for a weekly move if a provided headline actually supports it - never \
 invent or guess a reason. If nothing in the headlines explains a move, just report the \
@@ -118,8 +122,9 @@ def build_weekly_summary(
     last_week_kr_indices: list[dict] | None,
     last_week_watchlist: list[dict] | None,
     week_news_en: list[dict],
-    week_news_kr_translated: list[dict],
+    week_news_kr: list[dict],
     date_str: str,
+    portfolio_status: dict | None = None,
 ) -> tuple[str, str]:
     """Returns (html_body, text_body). week-over-week % change (this Friday's
     close vs. last Friday's close); if last week's data isn't available yet,
@@ -129,12 +134,8 @@ def build_weekly_summary(
     kr_weekly = _weekly_change(this_week_kr_indices, last_week_kr_indices)
     watchlist_weekly = _weekly_change(this_week_watchlist, last_week_watchlist)
     has_history = bool(last_week_us_indices or last_week_kr_indices)
+    portfolio_status = portfolio_status or {}
 
-    week_news_text = (
-        "\n".join(f"- {a['title']}" for a in week_news_kr_translated)
-        if week_news_kr_translated
-        else "(none)"
-    )
     prompt = ChatPromptTemplate.from_messages(
         [("system", WEEKLY_COMMENTARY_SYSTEM_PROMPT), ("human", WEEKLY_COMMENTARY_HUMAN_TEMPLATE)]
     )
@@ -144,7 +145,7 @@ def build_weekly_summary(
             "us_indices": format_index_quotes(us_weekly),
             "kr_indices": format_index_quotes(kr_weekly),
             "watchlist_quotes": format_stock_quotes(watchlist_weekly),
-            "week_news": format_news_text(week_news_en) + "\n" + week_news_text,
+            "week_news": format_news_text(week_news_en) + "\n" + format_news_text(week_news_kr),
         }
     )
     us_commentary, kr_commentary, takeaways = _parse_commentary(raw)
@@ -169,11 +170,13 @@ def build_weekly_summary(
     <div class="sectionlabel">Watchlist — This Week</div>
     <table>{watchlist_rows_html(watchlist_weekly)}</table>
 
+    {portfolio_status_html(portfolio_status)}
+
     {takeaways_html(takeaways)}
 
     <div class="sectionlabel">This Week's Headlines</div>
     {news_items_html(week_news_en)}
-    {news_items_html(week_news_kr_translated)}
+    {news_items_html(week_news_kr)}
     """
     html_body = render_email_shell(date_str, body, subtitle="Weekly Recap")
 
@@ -183,12 +186,15 @@ def build_weekly_summary(
     lines += ["US MARKET (week-over-week)", format_index_quotes(us_weekly), "", us_commentary, ""]
     lines += ["KOREA MARKET (week-over-week)", format_index_quotes(kr_weekly), "", kr_commentary, ""]
     lines += ["WATCHLIST (week-over-week)", format_stock_quotes(watchlist_weekly), ""]
+    ps = portfolio_status_text(portfolio_status)
+    if ps:
+        lines += [ps]
     tk = takeaways_text(takeaways)
     if tk:
         lines += [tk]
     lines += ["THIS WEEK'S HEADLINES", format_news_text_with_links(week_news_en)]
-    if week_news_kr_translated:
-        lines += [format_news_text_with_links(week_news_kr_translated)]
+    if week_news_kr:
+        lines += [format_news_text_with_links(week_news_kr)]
     lines += ["", "Sent by DailyMarketDigest · Data via yfinance, Finnhub, Naver API Hub"]
     text_body = "\n".join(lines)
 
@@ -337,18 +343,22 @@ if __name__ == "__main__":
             "url": "https://example.com/fed-rates",
         }
     ]
-    fake_news_kr_translated = [
+    fake_news_kr = [
         {
-            "title": "Samsung Electronics beats Q3 earnings estimates",
+            "title": "삼성전자, 3분기 실적 예상치 상회",
+            "description": "반도체 부문 회복세가 실적을 견인했다.",
             "url": "https://example.com/samsung-q3",
-            "source": "Translated · Naver",
         }
     ]
+    fake_portfolio_status = {
+        "USD": {"value": 1200.0, "cost": 1000.0, "gain_loss": 200.0, "gain_loss_pct": 20.0},
+        "KRW": {"value": 500000.0, "cost": 550000.0, "gain_loss": -50000.0, "gain_loss_pct": -9.09},
+    }
 
     print("=== WEEKLY SUMMARY (no last-week data) ===")
     html_body, text_body = build_weekly_summary(
         us_indices, kr_indices, watchlist, None, None, None,
-        fake_news_en, fake_news_kr_translated, "Sun, Aug 30",
+        fake_news_en, fake_news_kr, "Sun, Aug 30", portfolio_status=fake_portfolio_status,
     )
     print(text_body)
 

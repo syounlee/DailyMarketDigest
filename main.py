@@ -11,8 +11,9 @@ from src.email_sender import send_email
 from src.market_data import fetch_quotes
 from src.news_data import fetch_all as fetch_news_en
 from src.news_data_kr import fetch_all_kr as fetch_news_kr
+from src.portfolio import compute_totals
 from src.storage import load_snapshot, load_yesterday, save_today
-from src.synthesize import build_digest, translate_kr_news
+from src.synthesize import build_digest
 from src.weekly import build_week_ahead, build_weekly_summary
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -116,8 +117,13 @@ def _run_daily(config: dict, people: list[dict]) -> None:
                 "watchlist_quotes": prev_person.get("watchlist_quotes", []),
             }
 
+        portfolio_status = compute_totals(
+            person["watchlist_us"] + person["watchlist_kr"], watchlist_quotes
+        )
+
         html_digest, text_digest = build_digest(
-            us_indices, kr_indices, watchlist_quotes, news_en, news_kr, person_previous
+            us_indices, kr_indices, watchlist_quotes, news_en, news_kr, person_previous,
+            portfolio_status=portfolio_status,
         )
 
         subject = f"Daily Market Digest - {date.today().isoformat()}"
@@ -161,10 +167,7 @@ def _run_weekly_summary(config: dict, people: list[dict]) -> None:
     last_week_kr = last_week_snapshot.get("kr_indices") if last_week_snapshot else None
 
     week_days = [today - timedelta(days=n) for n in range(2, 7)]  # this week's Mon-Fri
-    week_news_kr_raw = _aggregate_week_news_kr(week_days)
-    week_news_kr_translated = safe_fetch(
-        "weekly.translate_kr", translate_kr_news, week_news_kr_raw, default=[]
-    )
+    week_news_kr = _aggregate_week_news_kr(week_days)
 
     people_snapshot = {}
 
@@ -189,6 +192,9 @@ def _run_weekly_summary(config: dict, people: list[dict]) -> None:
             )
 
         week_news_en = _aggregate_week_news_en(week_days, person["id"])
+        portfolio_status = compute_totals(
+            person["watchlist_us"] + person["watchlist_kr"], this_week_watchlist
+        )
 
         html_digest, text_digest = build_weekly_summary(
             this_week_us,
@@ -198,8 +204,9 @@ def _run_weekly_summary(config: dict, people: list[dict]) -> None:
             last_week_kr,
             last_week_watchlist,
             week_news_en,
-            week_news_kr_translated,
+            week_news_kr,
             today.strftime("%A, %B %-d, %Y"),
+            portfolio_status=portfolio_status,
         )
 
         subject = f"Weekly Market Recap - {today.isoformat()}"
@@ -217,7 +224,7 @@ def _run_weekly_summary(config: dict, people: list[dict]) -> None:
         {
             "us_indices": this_week_us,
             "kr_indices": this_week_kr,
-            "news_kr": week_news_kr_raw,
+            "news_kr": week_news_kr,
             "people": people_snapshot,
         }
     )
