@@ -139,7 +139,7 @@ def _generate_commentary(
 
 def _render_html(
     date_str, market_data_us, market_data_kr, watchlist_quotes, news_en, news_kr,
-    us_commentary, kr_commentary, takeaways, portfolio_status,
+    us_commentary, kr_commentary, takeaways, portfolio_status, watchlist_pl,
 ) -> str:
     body = f"""\
     <div class="sectionlabel">US Market</div>
@@ -151,7 +151,7 @@ def _render_html(
     <p class="commentary">{html_lib.escape(kr_commentary) or "(no commentary)"}</p>
 
     <div class="sectionlabel">Watchlist</div>
-    <table>{watchlist_rows_html(watchlist_quotes)}</table>
+    <table>{watchlist_rows_html(watchlist_quotes, watchlist_pl)}</table>
 
     {portfolio_status_html(portfolio_status)}
 
@@ -166,12 +166,12 @@ def _render_html(
 
 def _render_text(
     date_str, market_data_us, market_data_kr, watchlist_quotes, news_en, news_kr,
-    us_commentary, kr_commentary, takeaways, portfolio_status,
+    us_commentary, kr_commentary, takeaways, portfolio_status, watchlist_pl,
 ) -> str:
     lines = [f"DailyMarketDigest — {date_str}", ""]
     lines += ["US MARKET", format_index_quotes(market_data_us), "", us_commentary, ""]
     lines += ["KOREA MARKET", format_index_quotes(market_data_kr), "", kr_commentary, ""]
-    lines += ["WATCHLIST", format_stock_quotes(watchlist_quotes), ""]
+    lines += ["WATCHLIST", format_stock_quotes(watchlist_quotes, watchlist_pl), ""]
     ps = portfolio_status_text(portfolio_status)
     if ps:
         lines += [ps]
@@ -193,8 +193,12 @@ def build_digest(
     news_kr: list[dict],
     previous_snapshot: dict | None,
     portfolio_status: dict | None = None,
+    watchlist_pl: dict | None = None,
 ) -> tuple[str, str]:
-    """Returns (html_body, text_body)."""
+    """Returns (html_body, text_body). `portfolio_status` is the aggregate
+    per-currency totals (from portfolio.compute_totals()); `watchlist_pl` is
+    per-ticker P/L for the Watchlist rows (from portfolio.per_holding_pl()).
+    """
     us_commentary, kr_commentary, takeaways = _generate_commentary(
         market_data_us, market_data_kr, watchlist_quotes, news_en, news_kr, previous_snapshot
     )
@@ -202,7 +206,7 @@ def build_digest(
     date_str = date.today().strftime("%A, %B %-d, %Y")
     args = (
         date_str, market_data_us, market_data_kr, watchlist_quotes, news_en, news_kr,
-        us_commentary, kr_commentary, takeaways, portfolio_status or {},
+        us_commentary, kr_commentary, takeaways, portfolio_status or {}, watchlist_pl or {},
     )
     return _render_html(*args), _render_text(*args)
 
@@ -236,10 +240,16 @@ if __name__ == "__main__":
         "USD": {"value": 1200.0, "cost": 1000.0, "gain_loss": 200.0, "gain_loss_pct": 20.0},
         "KRW": {"value": 500000.0, "cost": 550000.0, "gain_loss": -50000.0, "gain_loss_pct": -9.09},
     }
+    fake_watchlist_pl = {
+        "AAPL": {"cost": 1000.0, "value": 1200.0, "gain_loss": 200.0, "gain_loss_pct": 20.0},
+        "005930.KS": {
+            "cost": 550000.0, "value": 500000.0, "gain_loss": -50000.0, "gain_loss_pct": -9.09,
+        },
+    }
 
     html_body, text_body = build_digest(
         us_indices, kr_indices, watchlist, fake_news_en, fake_news_kr, previous_snapshot=None,
-        portfolio_status=fake_portfolio_status,
+        portfolio_status=fake_portfolio_status, watchlist_pl=fake_watchlist_pl,
     )
     print("--- TEXT ---")
     print(text_body)

@@ -10,17 +10,26 @@ actual currency - see fmt_index_value vs fmt_stock_price).
 import html
 
 
-def format_stock_quotes(quotes: list[dict]) -> str:
-    """Plain-text quote lines for actual stocks/ETFs (priced in a currency)."""
+def format_stock_quotes(quotes: list[dict], pl_by_ticker: dict | None = None) -> str:
+    """Plain-text quote lines for actual stocks/ETFs (priced in a currency).
+
+    `pl_by_ticker` (from portfolio.per_holding_pl()) adds each holding's P/L
+    vs. its buy_price/cost, separate from the price-momentum % already shown -
+    only appended for tickers present in the dict.
+    """
     if not quotes:
         return "(none)"
+    pl_by_ticker = pl_by_ticker or {}
     lines = []
     for q in quotes:
         pct = q.get("pct_change")
         pct_str = f"{pct:+.2f}%" if pct is not None else "n/a"
-        lines.append(
-            f"- {q['name']} ({q['ticker']}): {q.get('price')} {q.get('currency', '')} ({pct_str})"
-        )
+        line = f"- {q['name']} ({q['ticker']}): {q.get('price')} {q.get('currency', '')} ({pct_str})"
+        pl = pl_by_ticker.get(q.get("ticker"))
+        if pl:
+            gl_str = _fmt_signed_amount(pl["gain_loss"], q.get("currency"))
+            line += f" [P/L {gl_str} / {pl['gain_loss_pct']:+.2f}%]"
+        lines.append(line)
     return "\n".join(lines)
 
 
@@ -99,15 +108,25 @@ def index_cards_html(quotes: list[dict]) -> str:
     return "".join(cards) or '<div class="card"><div class="name">(no data)</div></div>'
 
 
-def watchlist_rows_html(quotes: list[dict]) -> str:
+def watchlist_rows_html(quotes: list[dict], pl_by_ticker: dict | None = None) -> str:
+    """`pl_by_ticker` (from portfolio.per_holding_pl()) adds a P/L line under
+    each row's price-momentum chip, showing that holding's gain/loss vs. its
+    buy_price/cost - a separate thing from the daily/weekly % already shown.
+    """
+    pl_by_ticker = pl_by_ticker or {}
     rows = []
     for q in quotes:
         name = html.escape(str(q.get("name", "")))
         ticker = html.escape(str(q.get("ticker", "")))
         price = html.escape(fmt_stock_price(q.get("price"), q.get("currency")))
+        pl = pl_by_ticker.get(q.get("ticker"))
+        pl_sub = ""
+        if pl:
+            gl_str = html.escape(_fmt_signed_amount(pl["gain_loss"], q.get("currency")))
+            pl_sub = f'<div class="subtext">P/L {gl_str} ({pl["gain_loss_pct"]:+.2f}%)</div>'
         rows.append(
             f"<tr><td>{name} ({ticker})</td><td class='num'>{price}</td>"
-            f"<td class='num'>{chip_html(q.get('pct_change'))}</td></tr>"
+            f"<td class='num'>{chip_html(q.get('pct_change'))}{pl_sub}</td></tr>"
         )
     return "".join(rows) or "<tr><td>(no watchlist data)</td></tr>"
 
@@ -217,7 +236,10 @@ BASE_CSS = """\
   }
   .card .name { font-size: 11.5px; color: #6B7280; margin-bottom: 4px; }
   .card .price { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .card .subtext { font-size: 10.5px; color: #9199A3; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .subtext {
+    font-size: 10.5px; font-weight: 400; color: #9199A3; margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+  }
   .chip {
     display: inline-block; margin-top: 5px; padding: 2px 7px; border-radius: 100px;
     font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;

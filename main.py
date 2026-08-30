@@ -11,7 +11,7 @@ from src.email_sender import send_email
 from src.market_data import fetch_quotes
 from src.news_data import fetch_all as fetch_news_en
 from src.news_data_kr import fetch_all_kr as fetch_news_kr
-from src.portfolio import compute_totals
+from src.portfolio import compute_totals, per_holding_pl
 from src.storage import load_snapshot, load_yesterday, save_today
 from src.synthesize import build_digest
 from src.weekly import build_week_ahead, build_weekly_summary
@@ -117,13 +117,13 @@ def _run_daily(config: dict, people: list[dict]) -> None:
                 "watchlist_quotes": prev_person.get("watchlist_quotes", []),
             }
 
-        portfolio_status = compute_totals(
-            person["watchlist_us"] + person["watchlist_kr"], watchlist_quotes
-        )
+        holdings = person["watchlist_us"] + person["watchlist_kr"]
+        portfolio_status = compute_totals(holdings, watchlist_quotes)
+        watchlist_pl = per_holding_pl(holdings, watchlist_quotes)
 
         html_digest, text_digest = build_digest(
             us_indices, kr_indices, watchlist_quotes, news_en, news_kr, person_previous,
-            portfolio_status=portfolio_status,
+            portfolio_status=portfolio_status, watchlist_pl=watchlist_pl,
         )
 
         subject = f"Daily Market Digest - {date.today().isoformat()}"
@@ -192,9 +192,9 @@ def _run_weekly_summary(config: dict, people: list[dict]) -> None:
             )
 
         week_news_en = _aggregate_week_news_en(week_days, person["id"])
-        portfolio_status = compute_totals(
-            person["watchlist_us"] + person["watchlist_kr"], this_week_watchlist
-        )
+        holdings = person["watchlist_us"] + person["watchlist_kr"]
+        portfolio_status = compute_totals(holdings, this_week_watchlist)
+        watchlist_pl = per_holding_pl(holdings, this_week_watchlist)
 
         html_digest, text_digest = build_weekly_summary(
             this_week_us,
@@ -207,6 +207,7 @@ def _run_weekly_summary(config: dict, people: list[dict]) -> None:
             week_news_kr,
             today.strftime("%A, %B %-d, %Y"),
             portfolio_status=portfolio_status,
+            watchlist_pl=watchlist_pl,
         )
 
         subject = f"Weekly Market Recap - {today.isoformat()}"

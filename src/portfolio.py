@@ -52,6 +52,37 @@ def compute_totals(holdings: list[dict], quotes: list[dict]) -> dict:
     return results
 
 
+def per_holding_pl(holdings: list[dict], quotes: list[dict]) -> dict[str, dict]:
+    """Per-ticker cost basis and gain/loss vs. that holding's buy_price/cost -
+    for showing P/L on each Watchlist row, independent of (and in addition to)
+    the daily/weekly price-momentum % already shown there. Only includes
+    tickers with a computable cost basis and a matching live quote.
+    """
+    quotes_by_ticker = {q["ticker"]: q for q in quotes}
+    result = {}
+    for h in holdings:
+        q = quotes_by_ticker.get(h["ticker"])
+        shares = h.get("shares")
+        if not q or q.get("price") is None or shares is None:
+            continue
+
+        cost = h.get("cost")
+        if cost is None and h.get("buy_price") is not None:
+            cost = h["buy_price"] * shares
+        if not cost:
+            continue
+
+        value = q["price"] * shares
+        gain_loss = value - cost
+        result[h["ticker"]] = {
+            "cost": cost,
+            "value": value,
+            "gain_loss": gain_loss,
+            "gain_loss_pct": gain_loss / cost * 100,
+        }
+    return result
+
+
 if __name__ == "__main__":
     from dotenv import load_dotenv
 
@@ -66,5 +97,10 @@ if __name__ == "__main__":
     quotes = fetch_quotes(main.tickers(person["watchlist_us"]) + main.tickers(person["watchlist_kr"]))
 
     totals = compute_totals(holdings, quotes)
+    print("=== TOTALS ===")
     for currency, s in totals.items():
         print(currency, s)
+
+    print("\n=== PER-HOLDING P/L ===")
+    for ticker, pl in per_holding_pl(holdings, quotes).items():
+        print(ticker, pl)

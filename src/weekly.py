@@ -125,10 +125,13 @@ def build_weekly_summary(
     week_news_kr: list[dict],
     date_str: str,
     portfolio_status: dict | None = None,
+    watchlist_pl: dict | None = None,
 ) -> tuple[str, str]:
     """Returns (html_body, text_body). week-over-week % change (this Friday's
     close vs. last Friday's close); if last week's data isn't available yet,
     falls back to showing current levels with no week-over-week comparison.
+    `watchlist_pl` (from portfolio.per_holding_pl()) adds each holding's P/L
+    vs. its buy_price/cost - a separate thing from the week-over-week % above.
     """
     us_weekly = _weekly_change(this_week_us_indices, last_week_us_indices)
     kr_weekly = _weekly_change(this_week_kr_indices, last_week_kr_indices)
@@ -183,7 +186,7 @@ def build_weekly_summary(
 
     <div class="sectionlabel">Watchlist — This Week</div>
     {watchlist_note_html}
-    <table>{watchlist_rows_html(watchlist_weekly)}</table>
+    <table>{watchlist_rows_html(watchlist_weekly, watchlist_pl)}</table>
 
     {portfolio_status_html(portfolio_status)}
 
@@ -203,7 +206,7 @@ def build_weekly_summary(
     lines += ["WATCHLIST (week-over-week)"]
     if has_index_history and not has_watchlist_history:
         lines += ['(n/a - no week-over-week history yet for these holdings)']
-    lines += [format_stock_quotes(watchlist_weekly), ""]
+    lines += [format_stock_quotes(watchlist_weekly, watchlist_pl), ""]
     ps = portfolio_status_text(portfolio_status)
     if ps:
         lines += [ps]
