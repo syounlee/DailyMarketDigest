@@ -133,7 +133,11 @@ def build_weekly_summary(
     us_weekly = _weekly_change(this_week_us_indices, last_week_us_indices)
     kr_weekly = _weekly_change(this_week_kr_indices, last_week_kr_indices)
     watchlist_weekly = _weekly_change(this_week_watchlist, last_week_watchlist)
-    has_history = bool(last_week_us_indices or last_week_kr_indices)
+    # Tracked separately - indices and a person's watchlist can gain history at
+    # different times (e.g. a new person, or new holdings added to people.yaml,
+    # start with no watchlist history even if indices already have a full week).
+    has_index_history = bool(last_week_us_indices or last_week_kr_indices)
+    has_watchlist_history = bool(last_week_watchlist)
     portfolio_status = portfolio_status or {}
 
     prompt = ChatPromptTemplate.from_messages(
@@ -152,9 +156,19 @@ def build_weekly_summary(
 
     note_html = (
         ""
-        if has_history
+        if has_index_history
         else '<div class="note">First weekly recap - week-over-week comparison will '
         "appear once there's a full week of history.</div>"
+    )
+    # Only shown when indices already have history but the watchlist doesn't
+    # (e.g. holdings just added/changed) - otherwise the banner above already
+    # covers it, and showing both would be redundant.
+    watchlist_note_html = (
+        '<div class="note">Watchlist shows "n/a" - no week-over-week comparison yet for '
+        "these holdings. It'll appear once a full week of price history has been saved "
+        "for them.</div>"
+        if has_index_history and not has_watchlist_history
+        else ""
     )
 
     body = f"""\
@@ -168,6 +182,7 @@ def build_weekly_summary(
     <p class="commentary">{html.escape(kr_commentary) or "(no commentary)"}</p>
 
     <div class="sectionlabel">Watchlist — This Week</div>
+    {watchlist_note_html}
     <table>{watchlist_rows_html(watchlist_weekly)}</table>
 
     {portfolio_status_html(portfolio_status)}
@@ -181,11 +196,14 @@ def build_weekly_summary(
     html_body = render_email_shell(date_str, body, subtitle="Weekly Recap")
 
     lines = [f"DailyMarketDigest — Weekly Recap — {date_str}", ""]
-    if not has_history:
+    if not has_index_history:
         lines += ["(First weekly recap - no week-over-week comparison yet)", ""]
     lines += ["US MARKET (week-over-week)", format_index_quotes(us_weekly), "", us_commentary, ""]
     lines += ["KOREA MARKET (week-over-week)", format_index_quotes(kr_weekly), "", kr_commentary, ""]
-    lines += ["WATCHLIST (week-over-week)", format_stock_quotes(watchlist_weekly), ""]
+    lines += ["WATCHLIST (week-over-week)"]
+    if has_index_history and not has_watchlist_history:
+        lines += ['(n/a - no week-over-week history yet for these holdings)']
+    lines += [format_stock_quotes(watchlist_weekly), ""]
     ps = portfolio_status_text(portfolio_status)
     if ps:
         lines += [ps]
