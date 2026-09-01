@@ -195,19 +195,42 @@ A single failed step (e.g. a missing news API key) logs an error and falls back 
 empty result rather than crashing the whole run — you'll still get a digest, just with
 that section thin, until you add the missing key.
 
-## Scheduling (not yet set up)
+## Scheduling
 
-`run.sh` is the entry point cron/launchd should call — it `cd`s into the project,
-activates the venv, runs `main.py`, and appends output to `data/digest.log`.
+Set up via a macOS **launchd** LaunchAgent (`~/Library/LaunchAgents/com.seunglee.dailymarketdigest.plist`),
+scheduled to run `run.sh` at 7:00 AM daily. To change the time, edit the `Hour`/`Minute`
+values in that plist and reload it:
+```bash
+launchctl bootout gui/$(id -u)/com.seunglee.dailymarketdigest
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.seunglee.dailymarketdigest.plist
+```
 
-**cron** (`crontab -e`), e.g. to run at 7:00 AM daily:
+`run.sh` is the entry point — it `cd`s into the project, makes sure `ollama` is
+findable and its server is up (launchd's minimal `PATH` doesn't include Homebrew),
+activates the venv, and runs `main.py` under `caffeinate -is` (appends output to
+`data/digest.log`).
+
+**Why `caffeinate`**: a Mac can start this job during a brief "darkwake" background
+maintenance window rather than a full wake, and drop back to sleep before a run
+finishes (a digest can take anywhere from ~1 to ~45 min depending on Ollama's load) -
+killing it mid-run with no error logged, just a run that silently never sends an
+email. `caffeinate -is` holds a power assertion for `main.py`'s whole lifetime so the
+system won't sleep again until it's actually done.
+
+**For extra reliability**, especially if the Mac tends to be in deep sleep (not just
+idle) at your scheduled time, you can have macOS fully wake a minute before the job
+fires instead of relying on an opportunistic darkwake window - run this yourself
+(needs `sudo`, so it's not something run on your behalf):
+```bash
+sudo pmset repeat wakeorpoweron MTWRFSU 06:59:00
+```
+
+If you'd rather use cron instead of launchd:
 ```
 0 7 * * * /Users/seunglee/works/DailyMarketDigest/run.sh
 ```
-
-**launchd** is generally more reliable on macOS (cron jobs can silently fail to fire
-due to sleep/permissions). If you'd rather use that, say so and I'll generate the
-`.plist` file and load it — just let me know your preferred run time and I'll wire it up.
+launchd is generally the more reliable choice on macOS (cron jobs can silently fail
+to fire around sleep/permissions in ways that are harder to diagnose).
 
 ## Switching LLM providers
 

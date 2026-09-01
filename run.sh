@@ -16,4 +16,10 @@ if grep -q '^LLM_PROVIDER=ollama' .env 2>/dev/null && command -v ollama >/dev/nu
 fi
 
 source .venv/bin/activate
-python main.py >> data/digest.log 2>&1
+
+# The Mac can start this job during a brief "darkwake" maintenance window
+# (not a full wake) and drop back to sleep before it finishes, killing it
+# mid-run - a scheduled digest can take anywhere from ~1 to ~45 min depending
+# on Ollama's load. caffeinate holds a power assertion for the lifetime of
+# main.py so the system won't sleep again until it's actually done.
+caffeinate -is python main.py >> data/digest.log 2>&1
